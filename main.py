@@ -23,10 +23,14 @@ ACCESS_TOKEN_SECRET = twitter_config['access_token_secret']
 OUTPUT_NAME = twitter_config.get('output_name', fallback='saved.pk1')
 LOG_NAME = twitter_config.get('log_name', fallback='follow_log.log')
 
+lists_config = config['lists']
+MUTUALS_LIST_ID = lists_config['mutuals_list_id']
+
 twitter_api = twitter.Api(consumer_key=CONSUMER_KEY,
                           consumer_secret=CONSUMER_SECRET,
                           access_token_key=ACCESS_TOKEN_KEY,
                           access_token_secret=ACCESS_TOKEN_SECRET)
+
 verified = twitter_api.VerifyCredentials()
 if verified:
     print("Twitter verified as: " + str(verified))
@@ -81,6 +85,35 @@ def main():
     new_mutuals = []
     new_followers = []
 
+    deleted_users = []
+    suspended_users = []
+
+    def update_mutuals_list(old_mutuals_ids, unmutuals_ids, new_mutuals_ids, deleted_ids, suspended_ids):
+        mut = [i for i in new_mutuals_ids]
+        real_unmut = [i for i in unmutuals_ids if i not in deleted_ids + suspended_ids]
+        mut.extend([i for i in old_mutuals_ids if i not in real_unmut])
+
+        def chunks(lst, n):
+            """Yield successive n-sized chunks from lst."""
+            chunky = []
+
+            for i in range(0, len(lst), n):
+                chunky.append(lst[i:i + n])
+            return chunky
+
+        mut_chunks = chunks(mut, 90)
+
+        for i in mut_chunks:
+            try:
+                twitter_api.CreateListsMember(list_id=MUTUALS_LIST_ID, user_id=i)
+            except Exception as e:
+                print(e.message[0]['message'])
+
+
+    def parse_user_error(error):
+        return e.message[0]['code']
+
+
     def already_parsed(_id, lists):
         for i in lists:
             for p in i:
@@ -90,8 +123,12 @@ def main():
     for u in unfollow_ids:
         try:
             unfollows.append(twitter_api.GetUser(user_id=u))
-        except twitter.error.TwitterError:
-            pass
+        except twitter.error.TwitterError as e:
+            error_code = parse_user_error(e)
+            if error_code == 50:
+                deleted_users.append(u)
+            elif error_code == 63:
+                suspended_users.append(u)
 
     for un in unmutual_ids:
         ap = already_parsed(un, [unfollows])
@@ -100,8 +137,12 @@ def main():
         else:
             try:
                 unmutuals.append(twitter_api.GetUser(user_id=un))
-            except twitter.error.TwitterError:
-                pass
+            except twitter.error.TwitterError as e:
+                error_code = parse_user_error(e)
+                if error_code == 50:
+                    deleted_users.append(un)
+                elif error_code == 63:
+                    suspended_users.append(un)
 
     for _nm in new_mutual_ids:
         ap = already_parsed(_nm, [unfollows, unmutuals])
@@ -110,8 +151,12 @@ def main():
         else:
             try:
                 new_mutuals.append(twitter_api.GetUser(user_id=_nm))
-            except twitter.error.TwitterError:
-                pass
+            except twitter.error.TwitterError as e:
+                error_code = parse_user_error(e)
+                if error_code == 50:
+                    deleted_users.append(_nm)
+                elif error_code == 63:
+                    suspended_users.append(_nm)
 
 
     for _nf in new_follower_ids:
@@ -122,7 +167,13 @@ def main():
             try:
                 new_followers.append(twitter_api.GetUser(user_id=_nf))
             except twitter.error.TwitterError:
-                pass
+                error_code = parse_user_error(e)
+                if error_code == 50:
+                    deleted_users.append(_nf)
+                elif error_code == 63:
+                    suspended_users.append(_nf)
+    if MUTUALS_LIST_ID:
+        update_mutuals_list(old['mutuals'], unmutual_ids, new_mutual_ids, deleted_users, suspended_users)
 
     def gen_text(ls):
         screens = [i.screen_name for i in ls]
@@ -136,7 +187,6 @@ def main():
     new_follower_text = gen_text(new_followers)
 
     if unfollow_text or unfollow_text or new_mutual_text or new_follower_text:
-
         now = str(datetime.now().isoformat(' '))
         print("\nChanges detected at {}".format(now))
 
@@ -163,4 +213,4 @@ if __name__ == '__main__':
     main()
     while True:
         schedule.run_pending()
-        sleep(300)
+        sleep(30)
