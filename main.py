@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 from datetime import datetime
 from time import sleep
 from configparser import ConfigParser
@@ -66,6 +67,7 @@ def load_dict_from_file():
 
 
 def main():
+    print("yuh")
     current = get_current_mutuals_followers()
     old = load_dict_from_file()
     # {screen_name: name}
@@ -86,33 +88,46 @@ def main():
                     return p
 
     for u in unfollow_ids:
-        unfollows.append(twitter_api.GetUser(user_id=u))
+        try:
+            unfollows.append(twitter_api.GetUser(user_id=u))
+        except twitter.error.TwitterError:
+            pass
 
     for un in unmutual_ids:
         ap = already_parsed(un, [unfollows])
         if ap:
             unmutuals.append(ap)
         else:
-            unmutuals.append(twitter_api.GetUser(user_id=un))
+            try:
+                unmutuals.append(twitter_api.GetUser(user_id=un))
+            except twitter.error.TwitterError:
+                pass
 
     for _nm in new_mutual_ids:
         ap = already_parsed(_nm, [unfollows, unmutuals])
         if ap:
             new_mutuals.append(ap)
         else:
-            new_mutuals.append(twitter_api.GetUser(user_id=_nm))
+            try:
+                new_mutuals.append(twitter_api.GetUser(user_id=_nm))
+            except twitter.error.TwitterError:
+                pass
+
 
     for _nf in new_follower_ids:
         ap = already_parsed(_nf, [unfollows, unmutuals, new_mutuals])
         if ap:
             new_followers.append(ap)
         else:
-            new_followers.append(twitter_api.GetUser(user_id=_nf))
+            try:
+                new_followers.append(twitter_api.GetUser(user_id=_nf))
+            except twitter.error.TwitterError:
+                pass
 
     def gen_text(ls):
         screens = [i.screen_name for i in ls]
         names = [i.name for i in ls]
-        txt = ', '.join('{{{0}: {1}}}'.format(*t) for t in zip(screens, names))
+        txt = ', '.join('{{@{0}: {1}}}'.format(*t) for t in zip(screens, names))
         return str(txt)
 
     unfollow_text = gen_text(unfollows)
@@ -138,11 +153,14 @@ def main():
             file.write("\n\n")
 
     save_dict_to_file(current)
+    print("aye")
+
 
 
 if __name__ == '__main__':
     schedule.every(60).minutes.do(main)
     print('\nStarting..')
+    main()
     while True:
         schedule.run_pending()
         sleep(300)
