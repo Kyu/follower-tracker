@@ -186,7 +186,7 @@ def main():
     new_mutual_text = gen_text(new_mutuals)
     new_follower_text = gen_text(new_followers)
 
-    if unfollow_text or unfollow_text or new_mutual_text or new_follower_text:
+    if unfollow_text or unmutual_text or new_mutual_text or new_follower_text:
         now = str(datetime.now().isoformat(' '))
         print("\nChanges detected at {}".format(now))
 
