@@ -1,5 +1,7 @@
 .idea/*
-*.pk1
+*.pkl
+config.ini
+*.log
 
 #### GitHub Complied ####
 # Byte-compiled / optimized / DLL files

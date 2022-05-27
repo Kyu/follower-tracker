@@ -1,12 +1,18 @@
 # About
-This is a twitter bot that checks for new followers and logs changes
+This is a Twitter bot that checks for your new followers and logs changes
 
 ## Usage
 - Rename config-example.ini to config.ini
-- Fill out twitter credentials
+- Fill out twitter credentials, as well as other optional values
 - Run main.py
 
+## Requirements
+Install using pip:  
+- python-twitter: https://github.com/bear/python-twitter  
+- schedule: https://github.com/dbader/schedule  
 
-#### Using pm2
-- Download [PM2 Process manager](https://pm2.keymetrics.io/)
-- `pm2 start main.py --interpreter python3 --interpreter-args "-u" --name "{NAME}"`
+## TODO  
+
+* [ ] Make an extendable Events API for users who may wish to perform their own tasks
+
+

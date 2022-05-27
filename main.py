@@ -14,17 +14,19 @@ config.read('config.ini')
 
 # Logging in to twitter
 twitter_config = config['credentials']
-
 CONSUMER_KEY = twitter_config['consumer_key']
 CONSUMER_SECRET = twitter_config['consumer_secret']
 ACCESS_TOKEN_KEY = twitter_config['access_token_key']
 ACCESS_TOKEN_SECRET = twitter_config['access_token_secret']
 
-OUTPUT_NAME = twitter_config.get('output_name', fallback='saved.pk1')
-LOG_NAME = twitter_config.get('log_name', fallback='follow_log.log')
-
 lists_config = config['lists']
 MUTUALS_LIST_ID = lists_config['mutuals_list_id']
+
+schdeule_config = config['schedule']
+OUTPUT_NAME = schdeule_config.get('output_name', fallback='saved_following.pkl')
+LOG_NAME = schdeule_config.get('log_name', fallback='follow_log.log')
+RUN_EVERY = schdeule_config.getint('run_every', fallback=3600)
+SLEEP_TIME = schdeule_config.getint('sleep_time', fallback=30)
 
 twitter_api = twitter.Api(consumer_key=CONSUMER_KEY,
                           consumer_secret=CONSUMER_SECRET,
@@ -53,6 +55,7 @@ def get_current_mutuals_followers():
 
 
 def save_dict_to_file(dct):
+    # TODO use json?
     with open(OUTPUT_NAME, 'wb') as file:
         pickle.dump(dct, file, -1)
 
@@ -71,7 +74,7 @@ def load_dict_from_file():
 
 
 def main():
-    print("yuh")
+    print("Running main")
     current = get_current_mutuals_followers()
     old = load_dict_from_file()
     # {screen_name: name}
@@ -106,13 +109,11 @@ def main():
         for i in mut_chunks:
             try:
                 twitter_api.CreateListsMember(list_id=MUTUALS_LIST_ID, user_id=i)
-            except Exception as e:
+            except twitter.error.TwitterError as e:
                 print(e.message[0]['message'])
 
-
-    def parse_user_error(error):
-        return e.message[0]['code']
-
+    def parse_user_error_code(error):
+        return error.message[0]['code']
 
     def already_parsed(_id, lists):
         for i in lists:
@@ -124,7 +125,7 @@ def main():
         try:
             unfollows.append(twitter_api.GetUser(user_id=u))
         except twitter.error.TwitterError as e:
-            error_code = parse_user_error(e)
+            error_code = parse_user_error_code(e)
             if error_code == 50:
                 deleted_users.append(u)
             elif error_code == 63:
@@ -138,7 +139,7 @@ def main():
             try:
                 unmutuals.append(twitter_api.GetUser(user_id=un))
             except twitter.error.TwitterError as e:
-                error_code = parse_user_error(e)
+                error_code = parse_user_error_code(e)
                 if error_code == 50:
                     deleted_users.append(un)
                 elif error_code == 63:
@@ -152,12 +153,11 @@ def main():
             try:
                 new_mutuals.append(twitter_api.GetUser(user_id=_nm))
             except twitter.error.TwitterError as e:
-                error_code = parse_user_error(e)
+                error_code = parse_user_error_code(e)
                 if error_code == 50:
                     deleted_users.append(_nm)
                 elif error_code == 63:
                     suspended_users.append(_nm)
-
 
     for _nf in new_follower_ids:
         ap = already_parsed(_nf, [unfollows, unmutuals, new_mutuals])
@@ -166,12 +166,13 @@ def main():
         else:
             try:
                 new_followers.append(twitter_api.GetUser(user_id=_nf))
-            except twitter.error.TwitterError:
-                error_code = parse_user_error(e)
+            except twitter.error.TwitterError as e:
+                error_code = parse_user_error_code(e)
                 if error_code == 50:
                     deleted_users.append(_nf)
                 elif error_code == 63:
                     suspended_users.append(_nf)
+
     if MUTUALS_LIST_ID:
         update_mutuals_list(old['mutuals'], unmutual_ids, new_mutual_ids, deleted_users, suspended_users)
 
@@ -190,7 +191,7 @@ def main():
         now = str(datetime.now().isoformat(' '))
         print("\nChanges detected at {}".format(now))
 
-        with open(LOG_NAME, 'a') as file:
+        with open(LOG_NAME, 'a', encoding="utf-8") as file:
             file.write("{}:\n".format(now))
             if unfollow_text:
                 file.write("Unfollowers:\n{}\n".format(unfollow_text))
@@ -203,14 +204,17 @@ def main():
             file.write("\n\n")
 
     save_dict_to_file(current)
-    print("aye")
-
+    print("Completed main")
 
 
 if __name__ == '__main__':
-    schedule.every(60).minutes.do(main)
-    print('\nStarting..')
+    print('\nStarting program...')
     main()
-    while True:
-        schedule.run_pending()
-        sleep(30)
+    if RUN_EVERY > 0:
+        schedule.every(RUN_EVERY).seconds.do(main)
+        while True:
+            schedule.run_pending()
+            sleep(SLEEP_TIME)
+    print("Program done!")
+
+
