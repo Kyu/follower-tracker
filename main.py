@@ -1,15 +1,15 @@
 #!/usr/bin/python3
 from datetime import datetime
 from time import sleep
-import json
 
-import twitter
 import schedule
+import twitter
 
+import file_io
+import followers
 
 CONFIG_FILENAME = "config.json"
-with open(CONFIG_FILENAME, 'r') as cfg:
-    config = json.load(cfg)
+config = file_io.get_config(CONFIG_FILENAME)
 
 # Logging in to twitter
 twitter_config = config['credentials']
@@ -22,7 +22,7 @@ lists_config = config['lists']
 MUTUALS_LIST_ID = lists_config['mutuals_list_id']
 
 schdeule_config = config['schedule']
-OUTPUT_NAME = schdeule_config.get('output_name', 'saved_following.pkl')
+OUTPUT_NAME = schdeule_config.get('output_name', 'saved_following.json')
 LOG_NAME = schdeule_config.get('log_name', 'follow_log.log')
 RUN_EVERY = schdeule_config.get('run_every', 3600)
 SLEEP_TIME = schdeule_config.get('sleep_time', 30)
@@ -40,42 +40,29 @@ else:
     exit(1)
 
 
-def get_current_mutuals_followers():
-    following = twitter_api.GetFriendIDs()
-    followers = twitter_api.GetFollowerIDs()
-
-    mutual_1 = [i for i in following if i in followers]
-    mutual_2 = [f for f in followers if f in following]
-    mutual_1.extend(mutual_2)
-
-    mutuals = list(set(mutual_1))
-
-    return {'mutuals': mutuals, 'followers': followers}
+def parse_twitter_user_error_code(error):
+    return error.message[0]['code']
 
 
-def save_dict_to_file(dct):
-    # TODO use json?
-    with open(OUTPUT_NAME, 'w') as file:
-        file.write(json.dumps(dct, indent=4))
+def already_parsed(_id, lists):
+    for i in lists:
+        for p in i:
+            if p.id == _id:
+                return p
 
 
-def load_dict_from_file():
-    try:
-        with open(OUTPUT_NAME, 'r') as file:
-            dct = json.load(file)
-    except FileNotFoundError:
-        with open(OUTPUT_NAME, 'wb') as file:
-            dc = {'mutuals': [], 'followers': []}
-            save_dict_to_file(dc)
-            return dc
-
-    return dct
+def gen_text(users: list) -> str:
+    screens = [i.screen_name for i in users]
+    names = [i.name for i in users]
+    txt = ', '.join(f"{{@{t[0]}: {t[1]}}}" for t in zip(screens, names))
+    return str(txt)
 
 
 def main():
     print("Running main")
-    current = get_current_mutuals_followers()
-    old = load_dict_from_file()
+    current = followers.get_current_mutuals_followers(twitter_api)
+    old = file_io.load_follower_dict(OUTPUT_NAME)
+
     # {screen_name: name}
     unfollow_ids = [f for f in old['followers'] if f not in current['followers']]
     unmutual_ids = [m for m in old['mutuals'] if m not in current['mutuals']]
@@ -90,41 +77,11 @@ def main():
     deleted_users = []
     suspended_users = []
 
-    def update_mutuals_list(old_mutuals_ids, unmutuals_ids, new_mutuals_ids, deleted_ids, suspended_ids):
-        mut = [i for i in new_mutuals_ids]
-        real_unmut = [i for i in unmutuals_ids if i not in deleted_ids + suspended_ids]
-        mut.extend([i for i in old_mutuals_ids if i not in real_unmut])
-
-        def chunks(lst, n):
-            """Yield successive n-sized chunks from lst."""
-            chunky = []
-
-            for i in range(0, len(lst), n):
-                chunky.append(lst[i:i + n])
-            return chunky
-
-        mut_chunks = chunks(mut, 90)
-
-        for i in mut_chunks:
-            try:
-                twitter_api.CreateListsMember(list_id=MUTUALS_LIST_ID, user_id=i)
-            except twitter.error.TwitterError as e:
-                print(e.message[0]['message'])
-
-    def parse_user_error_code(error):
-        return error.message[0]['code']
-
-    def already_parsed(_id, lists):
-        for i in lists:
-            for p in i:
-                if p.id == _id:
-                    return p
-
     for u in unfollow_ids:
         try:
             unfollows.append(twitter_api.GetUser(user_id=u))
         except twitter.error.TwitterError as e:
-            error_code = parse_user_error_code(e)
+            error_code = parse_twitter_user_error_code(e)
             if error_code == 50:
                 deleted_users.append(u)
             elif error_code == 63:
@@ -138,7 +95,7 @@ def main():
             try:
                 unmutuals.append(twitter_api.GetUser(user_id=un))
             except twitter.error.TwitterError as e:
-                error_code = parse_user_error_code(e)
+                error_code = parse_twitter_user_error_code(e)
                 if error_code == 50:
                     deleted_users.append(un)
                 elif error_code == 63:
@@ -152,7 +109,7 @@ def main():
             try:
                 new_mutuals.append(twitter_api.GetUser(user_id=_nm))
             except twitter.error.TwitterError as e:
-                error_code = parse_user_error_code(e)
+                error_code = parse_twitter_user_error_code(e)
                 if error_code == 50:
                     deleted_users.append(_nm)
                 elif error_code == 63:
@@ -166,20 +123,15 @@ def main():
             try:
                 new_followers.append(twitter_api.GetUser(user_id=_nf))
             except twitter.error.TwitterError as e:
-                error_code = parse_user_error_code(e)
+                error_code = parse_twitter_user_error_code(e)
                 if error_code == 50:
                     deleted_users.append(_nf)
                 elif error_code == 63:
                     suspended_users.append(_nf)
 
     if MUTUALS_LIST_ID:
-        update_mutuals_list(old['mutuals'], unmutual_ids, new_mutual_ids, deleted_users, suspended_users)
-
-    def gen_text(ls):
-        screens = [i.screen_name for i in ls]
-        names = [i.name for i in ls]
-        txt = ', '.join('{{@{0}: {1}}}'.format(*t) for t in zip(screens, names))
-        return str(txt)
+        followers.update_mutuals_list(twitter_api, MUTUALS_LIST_ID, old['mutuals'], unmutual_ids, new_mutual_ids,
+                                      deleted_users, suspended_users)
 
     unfollow_text = gen_text(unfollows)
     unmutual_text = gen_text(unmutuals)
@@ -188,21 +140,21 @@ def main():
 
     if unfollow_text or unmutual_text or new_mutual_text or new_follower_text:
         now = str(datetime.now().isoformat(' '))
-        print("\nChanges detected at {}".format(now))
+        print(f"\nChanges detected at {now}")
 
         with open(LOG_NAME, 'a', encoding="utf-8") as file:
-            file.write("{}:\n".format(now))
+            file.write(f"{now}:\n")
             if unfollow_text:
-                file.write("Unfollowers:\n{}\n".format(unfollow_text))
+                file.write(f"Unfollowers:\n{unfollow_text}\n")
             if unmutual_text:
-                file.write("Unmutuals:\n{}\n".format(unmutual_text))
+                file.write(f"Unmutuals:\n{unmutual_text}\n")
             if new_mutual_text:
-                file.write("New mutuals:\n{}\n".format(new_mutual_text))
+                file.write(f"New mutuals:\n{new_mutual_text}\n")
             if new_follower_text:
-                file.write("New followers:\n{}\n".format(new_follower_text))
+                file.write(f"New followers:\n{new_follower_text}\n")
             file.write("\n\n")
 
-    save_dict_to_file(current)
+    file_io.save_dict_to_file(current, OUTPUT_NAME)
     print("Completed main")
 
 
@@ -215,5 +167,3 @@ if __name__ == '__main__':
             schedule.run_pending()
             sleep(SLEEP_TIME)
     print("Program done!")
-
-
