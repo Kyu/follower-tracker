@@ -1,16 +1,15 @@
 #!/usr/bin/python3
 from datetime import datetime
 from time import sleep
-from configparser import ConfigParser
 import json
 
 import twitter
 import schedule
 
 
-config = ConfigParser()
-config.read('config.ini')
-
+CONFIG_FILENAME = "config.json"
+with open(CONFIG_FILENAME, 'r') as cfg:
+    config = json.load(cfg)
 
 # Logging in to twitter
 twitter_config = config['credentials']
@@ -23,10 +22,10 @@ lists_config = config['lists']
 MUTUALS_LIST_ID = lists_config['mutuals_list_id']
 
 schdeule_config = config['schedule']
-OUTPUT_NAME = schdeule_config.get('output_name', fallback='saved_following.pkl')
-LOG_NAME = schdeule_config.get('log_name', fallback='follow_log.log')
-RUN_EVERY = schdeule_config.getint('run_every', fallback=3600)
-SLEEP_TIME = schdeule_config.getint('sleep_time', fallback=30)
+OUTPUT_NAME = schdeule_config.get('output_name', 'saved_following.pkl')
+LOG_NAME = schdeule_config.get('log_name', 'follow_log.log')
+RUN_EVERY = schdeule_config.get('run_every', 3600)
+SLEEP_TIME = schdeule_config.get('sleep_time', 30)
 
 twitter_api = twitter.Api(consumer_key=CONSUMER_KEY,
                           consumer_secret=CONSUMER_SECRET,
