@@ -2,7 +2,7 @@
 This is a Twitter bot that checks for your new followers and logs changes
 
 ## Usage
-- Rename config-example.ini to config.ini
+- Rename config-example.json to config.json
 - Fill out twitter credentials, as well as other optional values
 - Run main.py
 
