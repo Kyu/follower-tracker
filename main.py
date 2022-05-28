@@ -2,7 +2,7 @@
 from datetime import datetime
 from time import sleep
 from configparser import ConfigParser
-import pickle
+import json
 
 import twitter
 import schedule
@@ -35,7 +35,7 @@ twitter_api = twitter.Api(consumer_key=CONSUMER_KEY,
 
 verified = twitter_api.VerifyCredentials()
 if verified:
-    print("Twitter verified as: " + str(verified))
+    print("Twitter verified as: \n" + str(verified))
 else:
     print("Could not verify twitter user, check info")
     exit(1)
@@ -56,18 +56,18 @@ def get_current_mutuals_followers():
 
 def save_dict_to_file(dct):
     # TODO use json?
-    with open(OUTPUT_NAME, 'wb') as file:
-        pickle.dump(dct, file, -1)
+    with open(OUTPUT_NAME, 'w') as file:
+        file.write(json.dumps(dct, indent=4))
 
 
 def load_dict_from_file():
     try:
-        with open(OUTPUT_NAME, 'rb') as file:
-            dct = pickle.load(file)
+        with open(OUTPUT_NAME, 'r') as file:
+            dct = json.load(file)
     except FileNotFoundError:
         with open(OUTPUT_NAME, 'wb') as file:
             dc = {'mutuals': [], 'followers': []}
-            pickle.dump(dc, file, -1)
+            save_dict_to_file(dc)
             return dc
 
     return dct

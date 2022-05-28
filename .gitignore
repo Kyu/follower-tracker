@@ -3,6 +3,10 @@
 config.ini
 *.log
 
+# Ignore all json except config-example.json
+*.json
+!config-example.json
+
 #### GitHub Complied ####
 # Byte-compiled / optimized / DLL files
 __pycache__/
