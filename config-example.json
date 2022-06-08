@@ -10,5 +10,10 @@
     "sleep_time": 30,
     "output_name": "saved_following.json",
     "log_name": "follow_log.log"
+  },
+  "tracked_users": {
+    "self": true,
+    "others": [
+    ]
   }
 }
