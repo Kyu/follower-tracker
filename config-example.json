@@ -5,9 +5,6 @@
     "access_token_key": "TWITTER_ACCESS_TOKEN_KEY",
     "access_token_secret": "TWITTER_ACCESS_TOKEN_SECRET"
   },
-  "lists": {
-    "mutuals_list_id": 1234567890
-  },
   "schedule": {
     "run_every": 3600,
     "sleep_time": 30,

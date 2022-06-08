@@ -2,6 +2,7 @@
 *.pkl
 config.ini
 *.log
+twt_users/
 
 # Ignore all json except config-example.json
 *.json

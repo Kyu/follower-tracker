@@ -1,169 +1,194 @@
 #!/usr/bin/python3
 from datetime import datetime
-from time import sleep
 
-import schedule
-import twitter
+import diskcache as dc
 
 import file_io
-import followers
+import events
+import tracking
+import twitter
 
-CONFIG_FILENAME = "config.json"
-config = file_io.get_config(CONFIG_FILENAME)
-
-# Logging in to twitter
-twitter_config = config['credentials']
-CONSUMER_KEY = twitter_config['consumer_key']
-CONSUMER_SECRET = twitter_config['consumer_secret']
-ACCESS_TOKEN_KEY = twitter_config['access_token_key']
-ACCESS_TOKEN_SECRET = twitter_config['access_token_secret']
-
-lists_config = config['lists']
-MUTUALS_LIST_ID = lists_config['mutuals_list_id']
-
-schdeule_config = config['schedule']
-OUTPUT_NAME = schdeule_config.get('output_name', 'saved_following.json')
-LOG_NAME = schdeule_config.get('log_name', 'follow_log.log')
-RUN_EVERY = schdeule_config.get('run_every', 3600)
-SLEEP_TIME = schdeule_config.get('sleep_time', 30)
-
-twitter_api = twitter.Api(consumer_key=CONSUMER_KEY,
-                          consumer_secret=CONSUMER_SECRET,
-                          access_token_key=ACCESS_TOKEN_KEY,
-                          access_token_secret=ACCESS_TOKEN_SECRET)
-
-verified = twitter_api.VerifyCredentials()
-if verified:
-    print("Twitter verified as: \n" + str(verified))
-else:
-    print("Could not verify twitter user, check info")
-    exit(1)
+# get event bus and create cache
+bus = tracking.MAIN_BUS
+OUTPUT_NAME = ""
+LOG_NAME = ""
+twitter_api = twitter.Api()
+cache = dc.Cache('twt_users')
+CACHE_EXPIRE = 432000  # 5 days in seconds
 
 
-def parse_twitter_user_error_code(error):
+# A copy of twitter.User, for caching purposes
+class FakeTwtUser:
+    def __init__(self, user_id, screen_name, display_name):
+        self.id = user_id
+        self.screen_name = screen_name
+        self.name = display_name
+
+
+# Create a FakeTwtUser from twitter.User
+def create_fake_twitter_user(user) -> FakeTwtUser:
+    return FakeTwtUser(user.id, user.screen_name, user.name)
+
+
+# Get the error code from a twitter.TwitterError
+def parse_twitter_user_error_code(error: twitter.TwitterError):
     return error.message[0]['code']
 
 
-def already_parsed(_id, lists):
-    for i in lists:
-        for p in i:
-            if p.id == _id:
-                return p
-
-
-def gen_text(users: list) -> str:
+# Generate text of the @ and display name of FakeTwtUser in a list
+def gen_text(users: list[FakeTwtUser]) -> str:
     screens = [i.screen_name for i in users]
     names = [i.name for i in users]
     txt = ', '.join(f"{{@{t[0]}: {t[1]}}}" for t in zip(screens, names))
     return str(txt)
 
 
-def main():
-    print("Running main")
-    current = followers.get_current_mutuals_followers(twitter_api)
-    old = file_io.load_follower_dict(OUTPUT_NAME)
+# Get config options on tracker startup
+@bus.on(events.StartMainEvent.EVENT_NAME)
+def get_config(config_filename: str, cfg: dict, twt_api):
+    global OUTPUT_NAME, LOG_NAME, twitter_api
+    twitter_api = twt_api
 
-    # {screen_name: name}
-    unfollow_ids = [f for f in old['followers'] if f not in current['followers']]
-    unmutual_ids = [m for m in old['mutuals'] if m not in current['mutuals']]
-    new_mutual_ids = [nm for nm in current['mutuals'] if nm not in old['mutuals']]
-    new_follower_ids = [nf for nf in current['followers'] if nf not in old['followers']]
+    schedule_config = cfg['schedule']
+    OUTPUT_NAME = schedule_config.get('output_name', 'saved_following.json')
+    LOG_NAME = schedule_config.get('log_name', 'follow_log.log')
 
-    unfollows = []
-    unmutuals = []
-    new_mutuals = []
-    new_followers = []
 
-    deleted_users = []
-    suspended_users = []
+# Compare old followers/mutuals to current mutuals after all query events are completed
+@bus.on(events.FinishAllQueryEvents.EVENT_NAME)
+def keep_track(user_data: list[events.TwitterUserFollowingQuery]):
+    # Get old user data from file
+    old_info = file_io.load_follower_dict(OUTPUT_NAME)
 
-    for u in unfollow_ids:
-        try:
-            unfollows.append(twitter_api.GetUser(user_id=u))
-        except twitter.error.TwitterError as e:
-            error_code = parse_twitter_user_error_code(e)
-            if error_code == 50:
-                deleted_users.append(u)
-            elif error_code == 63:
-                suspended_users.append(u)
+    # Prepare a dict of current user data
+    tracking_dict = {}
 
-    for un in unmutual_ids:
-        ap = already_parsed(un, [unfollows])
-        if ap:
-            unmutuals.append(ap)
-        else:
-            try:
-                unmutuals.append(twitter_api.GetUser(user_id=un))
-            except twitter.error.TwitterError as e:
-                error_code = parse_twitter_user_error_code(e)
-                if error_code == 50:
-                    deleted_users.append(un)
-                elif error_code == 63:
-                    suspended_users.append(un)
+    last_updated = str(datetime.utcnow()) + "-UTC"
 
-    for _nm in new_mutual_ids:
-        ap = already_parsed(_nm, [unfollows, unmutuals])
-        if ap:
-            new_mutuals.append(ap)
-        else:
-            try:
-                new_mutuals.append(twitter_api.GetUser(user_id=_nm))
-            except twitter.error.TwitterError as e:
-                error_code = parse_twitter_user_error_code(e)
-                if error_code == 50:
-                    deleted_users.append(_nm)
-                elif error_code == 63:
-                    suspended_users.append(_nm)
+    update_text = ""
 
-    for _nf in new_follower_ids:
-        ap = already_parsed(_nf, [unfollows, unmutuals, new_mutuals])
-        if ap:
-            new_followers.append(ap)
-        else:
-            try:
-                new_followers.append(twitter_api.GetUser(user_id=_nf))
-            except twitter.error.TwitterError as e:
-                error_code = parse_twitter_user_error_code(e)
-                if error_code == 50:
-                    deleted_users.append(_nf)
-                elif error_code == 63:
-                    suspended_users.append(_nf)
+    # TODO make easier to read/follow lol
+    for user in user_data:
+        # Get this user's old info, if it exists, else a blank dict
+        old = old_info.get(str(user.user_id), file_io.default_follower_dict)
 
-    if MUTUALS_LIST_ID:
-        followers.update_mutuals_list(twitter_api, MUTUALS_LIST_ID, old['mutuals'], unmutual_ids, new_mutual_ids,
-                                      deleted_users, suspended_users)
+        # Prepare a new dict of current info
+        current = user.current
+        current['screen_name'] = user.screen_name
+        current['last_updated'] = last_updated
 
-    unfollow_text = gen_text(unfollows)
-    unmutual_text = gen_text(unmutuals)
-    new_mutual_text = gen_text(new_mutuals)
-    new_follower_text = gen_text(new_followers)
+        tracking_dict[str(user.user_id)] = current
 
-    if unfollow_text or unmutual_text or new_mutual_text or new_follower_text:
-        now = str(datetime.now().isoformat(' '))
-        print(f"\nChanges detected at {now}")
+        # Prepare lists of changes in following/mutuals ids
+        unfollow_ids = [f for f in old['followers'] if f not in current['followers']]
+        unmutual_ids = [m for m in old['mutuals'] if m not in current['mutuals']]
+        new_mutual_ids = [nm for nm in current['mutuals'] if nm not in old['mutuals']]
+        new_follower_ids = [nf for nf in current['followers'] if nf not in old['followers']]
+    
+        unfollows = []
+        unmutuals = []
+        new_mutuals = []
+        new_followers = []
+    
+        deleted_users = []
+        suspended_users = []
 
-        with open(LOG_NAME, 'a', encoding="utf-8") as file:
-            file.write(f"{now}:\n")
+        # This section checks user ids against the cache, if it doesn't exist, it queries twitter for information.
+        # Takes long time on the first run
+        # The process is repeated(!) for every list of changes, to get screen names of users
+        # TODO D.R.Y.
+        for u in unfollow_ids:
+            # Look for user in cache
+            _u_data = cache.get(u)
+
+            # If they don't exist, ask twitter for the user and update the cache
+            if not _u_data:
+                try:
+                    _u_data = create_fake_twitter_user(twitter_api.GetUser(user_id=u))
+                    cache.set(u, _u_data, expire=CACHE_EXPIRE)
+                except twitter.error.TwitterError as e:
+                    error_code = parse_twitter_user_error_code(e)
+                    if error_code == 50:
+                        deleted_users.append(u)
+                    elif error_code == 63:
+                        suspended_users.append(u)
+            if _u_data:
+                unfollows.append(_u_data)
+        
+        for un in unmutual_ids:
+            _u_data = cache.get(un)
+            # u(ap)
+            if not _u_data:
+                try:
+                    _u_data = create_fake_twitter_user(twitter_api.GetUser(user_id=un))
+                    cache.set(un, _u_data, expire=CACHE_EXPIRE)
+                except twitter.error.TwitterError as e:
+                    error_code = parse_twitter_user_error_code(e)
+                    if error_code == 50:
+                        deleted_users.append(un)
+                    elif error_code == 63:
+                        suspended_users.append(un)
+            if _u_data:
+                unmutuals.append(_u_data)
+
+        for _nm in new_mutual_ids:
+            _u_data = cache.get(_nm)
+            if not _u_data:
+                try:
+                    _u_data = create_fake_twitter_user(twitter_api.GetUser(user_id=_nm))
+                    cache.set(_nm, _u_data, expire=CACHE_EXPIRE)
+                except twitter.error.TwitterError as e:
+                    error_code = parse_twitter_user_error_code(e)
+                    if error_code == 50:
+                        deleted_users.append(_nm)
+                    elif error_code == 63:
+                        suspended_users.append(_nm)
+            if _u_data:
+                new_mutuals.append(_u_data)
+
+        for _nf in new_follower_ids:
+            _u_data = cache.get(_nf)
+            if not _u_data:
+                try:
+                    _u_data = create_fake_twitter_user(twitter_api.GetUser(user_id=_nf))
+                    cache.set(_nf, _u_data, expire=CACHE_EXPIRE)
+                except twitter.error.TwitterError as e:
+                    error_code = parse_twitter_user_error_code(e)
+                    if error_code == 50:
+                        deleted_users.append(_nf)
+                    elif error_code == 63:
+                        suspended_users.append(_nf)
+            if _u_data:
+                new_followers.append(_u_data)
+
+        # Generate text of all changes
+        unfollow_text = gen_text(unfollows)
+        unmutual_text = gen_text(unmutuals)
+        new_mutual_text = gen_text(new_mutuals)
+        new_follower_text = gen_text(new_followers)
+
+        # If any text was generated, combine all text
+        if unfollow_text or unmutual_text or new_mutual_text or new_follower_text:
+            all_text = f"@{user.screen_name} ({user.user_id})"
             if unfollow_text:
-                file.write(f"Unfollowers:\n{unfollow_text}\n")
+                all_text += f"\nUn Followers: {unfollow_text}"
             if unmutual_text:
-                file.write(f"Unmutuals:\n{unmutual_text}\n")
+                all_text += f"\nUn Mutuals: {unmutual_text}"
             if new_mutual_text:
-                file.write(f"New mutuals:\n{new_mutual_text}\n")
+                all_text += f"\nNew Mutuals: {new_mutual_text}"
             if new_follower_text:
-                file.write(f"New followers:\n{new_follower_text}\n")
-            file.write("\n\n")
+                all_text += f"\nNew Followers: {new_follower_text}"
 
-    file_io.save_dict_to_file(current, OUTPUT_NAME)
-    print("Completed main")
+            update_text = all_text + "\n"
+
+    # Append update text to log file
+    if update_text:
+        update_text = f"\n{last_updated}\n{update_text}"
+        file_io.append_text_to_file(update_text, LOG_NAME)
+
+    # Update new tracking dict in file
+    file_io.save_dict_to_file(tracking_dict, OUTPUT_NAME, old_info=old_info)
 
 
-if __name__ == '__main__':
-    print('\nStarting program...')
-    main()
-    if RUN_EVERY > 0:
-        schedule.every(RUN_EVERY).seconds.do(main)
-        while True:
-            schedule.run_pending()
-            sleep(SLEEP_TIME)
-    print("Program done!")
+# Begin tracking
+tracking.start()
