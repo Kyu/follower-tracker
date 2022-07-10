@@ -14,7 +14,7 @@ OUTPUT_NAME = ""
 LOG_NAME = ""
 twitter_api = twitter.Api()
 cache = dc.Cache('twt_users')
-CACHE_EXPIRE = 432000  # 5 days in seconds
+CACHE_EXPIRE = 432000  # 5 days in seconds, overridden in config
 
 
 # A copy of twitter.User, for caching purposes
@@ -40,18 +40,21 @@ def gen_text(users: list[FakeTwtUser]) -> str:
     screens = [i.screen_name for i in users]
     names = [i.name for i in users]
     txt = ', '.join(f"{{@{t[0]}: {t[1]}}}" for t in zip(screens, names))
+    if txt:
+        txt = f"({len(users)}): \n {txt}"
     return str(txt)
 
 
 # Get config options on tracker startup
 @bus.on(events.StartMainEvent.EVENT_NAME)
 def get_config(config_filename: str, cfg: dict, twt_api):
-    global OUTPUT_NAME, LOG_NAME, twitter_api
+    global OUTPUT_NAME, LOG_NAME, CACHE_EXPIRE, twitter_api
     twitter_api = twt_api
 
     schedule_config = cfg['schedule']
     OUTPUT_NAME = schedule_config.get('output_name', 'saved_following.json')
     LOG_NAME = schedule_config.get('log_name', 'follow_log.log')
+    CACHE_EXPIRE = schedule_config.get('cache_expire', 432000)
 
 
 # Compare old followers/mutuals to current mutuals after all query events are completed

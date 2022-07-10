@@ -9,7 +9,8 @@
     "run_every": 3600,
     "sleep_time": 30,
     "output_name": "saved_following.json",
-    "log_name": "follow_log.log"
+    "log_name": "follow_log.log",
+    "cache_expire": 432000
   },
   "tracked_users": {
     "self": true,
