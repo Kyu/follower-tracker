@@ -30,9 +30,10 @@ Config options are explained in the `_comment`
     "access_token_secret": "TWITTER_ACCESS_TOKEN_SECRET"
   },
   "schedule": {
-    "_comment": "run_every: time between each user query in seconds. sleep_time: loop sleep time in seconds",
-    "_comment2": "output_name: file to output user following, for comparison purposes",
-    "_comment3": "log_name: file to log changes in following",
+    "_comment": "run_every: time between each user query in seconds. Script runs once and quits if this is <= 0",
+    "_comment2": "sleep_time: main loop sleep time in seconds. ",
+    "_comment3": "output_name: file to output user following, for comparison purposes",
+    "_comment4": "log_name: file to log changes in following",
     "run_every": 0,
     "sleep_time": 30,
     "output_name": "saved_following.json",
